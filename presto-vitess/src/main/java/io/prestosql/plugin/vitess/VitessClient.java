@@ -21,7 +21,7 @@ import io.prestosql.plugin.jdbc.BaseJdbcClient;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.ConnectionFactory;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
-import io.prestosql.plugin.jdbc.JdbcConnectorId;
+import io.prestosql.plugin.jdbc.JdbcIdentity;
 import io.prestosql.plugin.jdbc.JdbcTableHandle;
 import io.prestosql.plugin.jdbc.WriteMapping;
 import io.prestosql.spi.PrestoException;
@@ -30,7 +30,6 @@ import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
 
-import javax.annotation.Nullable;
 import javax.inject.Inject;
 
 import java.sql.Connection;
@@ -40,6 +39,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 
@@ -67,10 +67,10 @@ public class VitessClient
     private static final Logger log = Logger.get(BaseJdbcClient.class);
 
     @Inject
-    public VitessClient(JdbcConnectorId connectorId, BaseJdbcConfig config, VitessConfig vitessConfig)
+    public VitessClient(BaseJdbcConfig config, VitessConfig vitessConfig)
             throws SQLException
     {
-        super(connectorId, config, "`", connectionFactory(config, vitessConfig));
+        super(config, "`", connectionFactory(config, vitessConfig));
         this.vttabletSchemaName = String.valueOf(vitessConfig.getVttabletSchemaName());
     }
 
@@ -95,9 +95,9 @@ public class VitessClient
     }
 
     @Override
-    public Set<String> getSchemaNames()
+    public Set<String> getSchemaNames(JdbcIdentity identity)
     {
-        try (Connection connection = connectionFactory.openConnection();
+        try (Connection connection = connectionFactory.openConnection(identity);
                 ResultSet resultSet = connection.getMetaData().getCatalogs()) {
             ImmutableSet.Builder<String> schemaNames = ImmutableSet.builder();
             while (resultSet.next()) {
@@ -136,16 +136,16 @@ public class VitessClient
     }
 
     @Override
-    protected ResultSet getTables(Connection connection, String schemaName, String tableName)
+    protected ResultSet getTables(Connection connection, Optional<String> schemaName, Optional<String> tableName)
             throws SQLException
     {
         DatabaseMetaData metadata = connection.getMetaData();
         String vttabletSchemaName = this.vttabletSchemaName;
-        String escape = metadata.getSearchStringEscape();
+        Optional<String> escape = Optional.ofNullable(metadata.getSearchStringEscape());
         return metadata.getTables(
                 vttabletSchemaName,
                 null,
-                escapeNamePattern(tableName, escape),
+                escapeNamePattern(tableName, escape).orElse(null),
                 new String[] {"TABLE", "VIEW"});
     }
 
@@ -158,11 +158,10 @@ public class VitessClient
                 resultSet.getString("TABLE_NAME").toLowerCase(ENGLISH));
     }
 
-    @Nullable
     @Override
-    public JdbcTableHandle getTableHandle(SchemaTableName schemaTableName)
+    public Optional<JdbcTableHandle> getTableHandle(JdbcIdentity identity, SchemaTableName schemaTableName)
     {
-        try (Connection connection = connectionFactory.openConnection()) {
+        try (Connection connection = connectionFactory.openConnection(identity)) {
             DatabaseMetaData metadata = connection.getMetaData();
             String jdbcSchemaName = this.vttabletSchemaName;
             String jdbcTableName = schemaTableName.getTableName();
@@ -173,24 +172,23 @@ public class VitessClient
                 jdbcSchemaName = jdbcSchemaName.toUpperCase(ENGLISH);
                 jdbcTableName = jdbcTableName.toUpperCase(ENGLISH);
             }
-            try (ResultSet resultSet = getTables(connection, jdbcSchemaName, jdbcTableName)) {
+            try (ResultSet resultSet = getTables(connection, Optional.of(jdbcSchemaName), Optional.of(jdbcTableName))) {
                 List<JdbcTableHandle> tableHandles = new ArrayList<>();
 
                 while (resultSet.next()) {
                     tableHandles.add(new JdbcTableHandle(
-                            connectorId,
                             schemaTableName,
                             jdbcSchemaName,
                             null,
                             resultSet.getString("TABLE_NAME")));
                 }
                 if (tableHandles.isEmpty()) {
-                    return null;
+                    return Optional.empty();
                 }
                 if (tableHandles.size() > 1) {
                     throw new PrestoException(NOT_SUPPORTED, "Multiple tables matched: " + schemaTableName);
                 }
-                return getOnlyElement(tableHandles);
+                return Optional.of(getOnlyElement(tableHandles));
             }
         }
         catch (SQLException e) {
