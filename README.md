@@ -1,7 +1,9 @@
 # Presto connector plugin for Vitess
 
-Catalog format (every line is required): 
- 
+**[!WARNING]**: This repo is forked from [vitessio/contrib: Vitess contributions](https://github.com/vitessio/contrib)
+
+Catalog format (every line is required):
+
 ```
 connector.name=vitess  
 connection-url=jdbc:mysql://<vtgate ip address>:<vtgate port>/<Vitess keyspace>  
