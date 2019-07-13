@@ -21,11 +21,11 @@ import io.prestosql.plugin.jdbc.BaseJdbcClient;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.ConnectionFactory;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
-import io.prestosql.plugin.jdbc.JdbcColumnHandle;
-import io.prestosql.plugin.jdbc.JdbcSplit;
+import io.prestosql.plugin.jdbc.JdbcConnectorId;
 import io.prestosql.plugin.jdbc.JdbcTableHandle;
-import io.prestosql.plugin.jdbc.QueryBuilder;
+import io.prestosql.plugin.jdbc.WriteMapping;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
@@ -40,7 +40,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 
@@ -48,6 +47,10 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.prestosql.plugin.jdbc.DriverConnectionFactory.basicConnectionProperties;
 import static io.prestosql.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.realWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.timestampWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.varbinaryWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.RealType.REAL;
 import static io.prestosql.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
@@ -64,10 +67,10 @@ public class VitessClient
     private static final Logger log = Logger.get(BaseJdbcClient.class);
 
     @Inject
-    public VitessClient(BaseJdbcConfig config, VitessConfig vitessConfig)
+    public VitessClient(JdbcConnectorId connectorId, BaseJdbcConfig config, VitessConfig vitessConfig)
             throws SQLException
     {
-        super(config, "`", connectionFactory(config, vitessConfig));
+        super(connectorId, config, "`", connectionFactory(config, vitessConfig));
         this.vttabletSchemaName = String.valueOf(vitessConfig.getVttabletSchemaName());
     }
 
@@ -142,7 +145,7 @@ public class VitessClient
         return metadata.getTables(
                 vttabletSchemaName,
                 null,
-                escapeNamePattern(Optional.of(tableName), Optional.of(escape)).get(),
+                escapeNamePattern(tableName, escape),
                 new String[] {"TABLE", "VIEW"});
     }
 
@@ -175,6 +178,7 @@ public class VitessClient
 
                 while (resultSet.next()) {
                     tableHandles.add(new JdbcTableHandle(
+                            connectorId,
                             schemaTableName,
                             jdbcSchemaName,
                             null,
@@ -194,52 +198,90 @@ public class VitessClient
         }
     }
 
-    @Override
-    public PreparedStatement buildSql(Connection connection, JdbcSplit split, List<JdbcColumnHandle> columnHandles)
-            throws SQLException
-    {
-        return new QueryBuilder(identifierQuote).buildSql(
-                this,
-                connection,
-                null,
-                split.getSchemaName(),
-                split.getTableName(),
-                columnHandles,
-                split.getTupleDomain());
-    }
+//    @Override
+//    public PreparedStatement buildSql(Connection connection, JdbcSplit split, List<JdbcColumnHandle> columnHandles)
+//            throws SQLException
+//    {
+//        return new QueryBuilder(identifierQuote).buildSql(
+//                this,
+//                connection,
+//                null,
+//                split.getSchemaName(),
+//                split.getTableName(),
+//                columnHandles,
+//                split.getTupleDomain());
+//    }
+
+//    @Override
+//    protected String toSqlType(Type type)
+//    {
+//        if (REAL.equals(type)) {
+//            return "float";
+//        }
+//        if (TIME_WITH_TIME_ZONE.equals(type) || TIMESTAMP_WITH_TIME_ZONE.equals(type)) {
+//            throw new PrestoException(NOT_SUPPORTED, "Unsupported column type: " + type.getDisplayName());
+//        }
+//        if (TIMESTAMP.equals(type)) {
+//            return "datetime";
+//        }
+//        if (VARBINARY.equals(type)) {
+//            return "mediumblob";
+//        }
+//        if (isVarcharType(type)) {
+//            VarcharType varcharType = (VarcharType) type;
+//            if (varcharType.isUnbounded()) {
+//                return "longtext";
+//            }
+//            if (varcharType.getBoundedLength() <= 255) {
+//                return "tinytext";
+//            }
+//            if (varcharType.getBoundedLength() <= 65535) {
+//                return "text";
+//            }
+//            if (varcharType.getBoundedLength() <= 16777215) {
+//                return "mediumtext";
+//            }
+//            return "longtext";
+//        }
+//
+//        return super.toSqlType(type);
+//    }
 
     @Override
-    protected String toSqlType(Type type)
+    public WriteMapping toWriteMapping(ConnectorSession session, Type type)
     {
         if (REAL.equals(type)) {
-            return "float";
+            return WriteMapping.longMapping("float", realWriteFunction());
         }
         if (TIME_WITH_TIME_ZONE.equals(type) || TIMESTAMP_WITH_TIME_ZONE.equals(type)) {
             throw new PrestoException(NOT_SUPPORTED, "Unsupported column type: " + type.getDisplayName());
         }
         if (TIMESTAMP.equals(type)) {
-            return "datetime";
+            return WriteMapping.longMapping("datetime", timestampWriteFunction());
         }
         if (VARBINARY.equals(type)) {
-            return "mediumblob";
+            return WriteMapping.sliceMapping("mediumblob", varbinaryWriteFunction());
         }
         if (isVarcharType(type)) {
+            String dataType;
             VarcharType varcharType = (VarcharType) type;
             if (varcharType.isUnbounded()) {
-                return "longtext";
+                dataType = "longtext";
             }
             if (varcharType.getBoundedLength() <= 255) {
-                return "tinytext";
+                dataType = "tinytext";
             }
             if (varcharType.getBoundedLength() <= 65535) {
-                return "text";
+                dataType = "text";
             }
             if (varcharType.getBoundedLength() <= 16777215) {
-                return "mediumtext";
+                dataType = "mediumtext";
             }
-            return "longtext";
+            else {
+                dataType = "longtext";
+            }
+            return WriteMapping.sliceMapping(dataType, varcharWriteFunction());
         }
-
-        return super.toSqlType(type);
+        return super.toWriteMapping(session, type);
     }
 }
