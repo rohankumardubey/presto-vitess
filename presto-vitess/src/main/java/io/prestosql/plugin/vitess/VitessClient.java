@@ -13,6 +13,37 @@
  */
 package io.prestosql.plugin.vitess;
 
+import com.google.common.collect.ImmutableSet;
+import com.mysql.jdbc.Driver;
+import com.mysql.jdbc.Statement;
+import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.BaseJdbcClient;
+import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.ConnectionFactory;
+import io.prestosql.plugin.jdbc.DriverConnectionFactory;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
+import io.prestosql.plugin.jdbc.JdbcSplit;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.QueryBuilder;
+import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.connector.SchemaTableName;
+import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.VarcharType;
+
+import javax.annotation.Nullable;
+import javax.inject.Inject;
+
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.prestosql.plugin.jdbc.DriverConnectionFactory.basicConnectionProperties;
@@ -26,35 +57,6 @@ import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
 import static io.prestosql.spi.type.Varchars.isVarcharType;
 import static java.util.Locale.ENGLISH;
 
-import com.google.common.collect.ImmutableSet;
-import com.mysql.jdbc.Driver;
-import com.mysql.jdbc.Statement;
-import io.airlift.log.Logger;
-import io.prestosql.plugin.jdbc.BaseJdbcClient;
-import io.prestosql.plugin.jdbc.BaseJdbcConfig;
-import io.prestosql.plugin.jdbc.ConnectionFactory;
-import io.prestosql.plugin.jdbc.DriverConnectionFactory;
-import io.prestosql.plugin.jdbc.JdbcColumnHandle;
-import io.prestosql.plugin.jdbc.JdbcConnectorId;
-import io.prestosql.plugin.jdbc.JdbcSplit;
-import io.prestosql.plugin.jdbc.JdbcTableHandle;
-import io.prestosql.plugin.jdbc.QueryBuilder;
-import io.prestosql.spi.PrestoException;
-import io.prestosql.spi.connector.SchemaTableName;
-import io.prestosql.spi.type.Type;
-import io.prestosql.spi.type.VarcharType;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
-import javax.annotation.Nullable;
-import javax.inject.Inject;
-
 public class VitessClient
         extends BaseJdbcClient
 {
@@ -62,10 +64,10 @@ public class VitessClient
     private static final Logger log = Logger.get(BaseJdbcClient.class);
 
     @Inject
-    public VitessClient(JdbcConnectorId connectorId, BaseJdbcConfig config, VitessConfig vitessConfig)
+    public VitessClient(BaseJdbcConfig config, VitessConfig vitessConfig)
             throws SQLException
     {
-        super(connectorId, config, "`", connectionFactory(config, vitessConfig));
+        super(config, "`", connectionFactory(config, vitessConfig));
         this.vttabletSchemaName = String.valueOf(vitessConfig.getVttabletSchemaName());
     }
 
@@ -140,7 +142,7 @@ public class VitessClient
         return metadata.getTables(
                 vttabletSchemaName,
                 null,
-                escapeNamePattern(tableName, escape),
+                escapeNamePattern(Optional.of(tableName), Optional.of(escape)).get(),
                 new String[] {"TABLE", "VIEW"});
     }
 
@@ -173,7 +175,6 @@ public class VitessClient
 
                 while (resultSet.next()) {
                     tableHandles.add(new JdbcTableHandle(
-                            connectorId,
                             schemaTableName,
                             jdbcSchemaName,
                             null,
@@ -227,13 +228,13 @@ public class VitessClient
             if (varcharType.isUnbounded()) {
                 return "longtext";
             }
-            if (varcharType.getLengthSafe() <= 255) {
+            if (varcharType.getBoundedLength() <= 255) {
                 return "tinytext";
             }
-            if (varcharType.getLengthSafe() <= 65535) {
+            if (varcharType.getBoundedLength() <= 65535) {
                 return "text";
             }
-            if (varcharType.getLengthSafe() <= 16777215) {
+            if (varcharType.getBoundedLength() <= 16777215) {
                 return "mediumtext";
             }
             return "longtext";

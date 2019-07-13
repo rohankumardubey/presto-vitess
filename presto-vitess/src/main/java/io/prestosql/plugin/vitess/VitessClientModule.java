@@ -13,17 +13,18 @@
  */
 package io.prestosql.plugin.vitess;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.configuration.ConfigBinder.configBinder;
-
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import com.mysql.jdbc.Driver;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.JdbcClient;
+
 import java.sql.SQLException;
 import java.util.Properties;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static io.airlift.configuration.ConfigBinder.configBinder;
 
 public class VitessClientModule
         extends AbstractConfigurationAwareModule
