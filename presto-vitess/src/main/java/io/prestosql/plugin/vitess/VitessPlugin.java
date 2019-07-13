@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.vitess;
+package io.prestosql.plugin.vitess;
 
-import com.facebook.presto.plugin.jdbc.JdbcPlugin;
+import io.prestosql.plugin.jdbc.JdbcPlugin;
 
 public class VitessPlugin
         extends JdbcPlugin

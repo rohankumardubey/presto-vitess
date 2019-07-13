@@ -11,20 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.plugin.vitess;
+package io.prestosql.plugin.vitess;
 
-import com.facebook.presto.plugin.jdbc.BaseJdbcConfig;
-import com.facebook.presto.plugin.jdbc.JdbcClient;
+import static com.google.common.base.Preconditions.checkArgument;
+import static io.airlift.configuration.ConfigBinder.configBinder;
+
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import com.mysql.jdbc.Driver;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-
+import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.JdbcClient;
 import java.sql.SQLException;
 import java.util.Properties;
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.configuration.ConfigBinder.configBinder;
 
 public class VitessClientModule
         extends AbstractConfigurationAwareModule
