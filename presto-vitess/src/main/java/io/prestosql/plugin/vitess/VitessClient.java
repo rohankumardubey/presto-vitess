@@ -48,7 +48,7 @@ import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.prestosql.plugin.jdbc.DriverConnectionFactory.basicConnectionProperties;
 import static io.prestosql.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.realWriteFunction;
-import static io.prestosql.plugin.jdbc.StandardColumnMappings.timestampWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.timestampWriteFunctionUsingSqlTimestamp;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varbinaryWriteFunction;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -91,7 +91,12 @@ public class VitessClient
             connectionProperties.setProperty("connectTimeout", String.valueOf(vitessConfig.getConnectionTimeout().toMillis()));
         }
 
-        return new DriverConnectionFactory(new Driver(), config.getConnectionUrl(), connectionProperties);
+        return new DriverConnectionFactory(
+                new Driver(),
+                config.getConnectionUrl(),
+                Optional.ofNullable(config.getUserCredentialName()),
+                Optional.ofNullable(config.getPasswordCredentialName()),
+                connectionProperties);
     }
 
     @Override
@@ -196,7 +201,19 @@ public class VitessClient
         }
     }
 
-//    @Override
+    @Override
+    protected String applyLimit(String sql, long limit)
+    {
+        return sql + " LIMIT " + limit;
+    }
+
+    @Override
+    public boolean isLimitGuaranteed()
+    {
+        return true;
+    }
+
+    //    @Override
 //    public PreparedStatement buildSql(Connection connection, JdbcSplit split, List<JdbcColumnHandle> columnHandles)
 //            throws SQLException
 //    {
@@ -255,7 +272,8 @@ public class VitessClient
             throw new PrestoException(NOT_SUPPORTED, "Unsupported column type: " + type.getDisplayName());
         }
         if (TIMESTAMP.equals(type)) {
-            return WriteMapping.longMapping("datetime", timestampWriteFunction());
+            // TODO use `timestampWriteFunction`
+            return WriteMapping.longMapping("datetime", timestampWriteFunctionUsingSqlTimestamp(session));
         }
         if (VARBINARY.equals(type)) {
             return WriteMapping.sliceMapping("mediumblob", varbinaryWriteFunction());
