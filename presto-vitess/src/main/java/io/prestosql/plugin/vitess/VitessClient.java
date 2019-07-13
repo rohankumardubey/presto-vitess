@@ -19,15 +19,20 @@ import com.mysql.jdbc.Statement;
 import io.airlift.log.Logger;
 import io.prestosql.plugin.jdbc.BaseJdbcClient;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.ColumnMapping;
 import io.prestosql.plugin.jdbc.ConnectionFactory;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
 import io.prestosql.plugin.jdbc.JdbcIdentity;
 import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTypeHandle;
 import io.prestosql.plugin.jdbc.WriteMapping;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.SchemaTableName;
+import io.prestosql.spi.type.StandardTypes;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeManager;
+import io.prestosql.spi.type.TypeSignature;
 import io.prestosql.spi.type.VarcharType;
 
 import javax.inject.Inject;
@@ -41,7 +46,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Properties;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
@@ -66,12 +74,16 @@ public class VitessClient
     private String vttabletSchemaName;
     private static final Logger log = Logger.get(BaseJdbcClient.class);
 
+    // TODO: Support jsonColumn
+    private final Type jsonType;
+
     @Inject
-    public VitessClient(BaseJdbcConfig config, VitessConfig vitessConfig)
+    public VitessClient(BaseJdbcConfig config, VitessConfig vitessConfig, TypeManager typeManager)
             throws SQLException
     {
         super(config, "`", connectionFactory(config, vitessConfig));
         this.vttabletSchemaName = String.valueOf(vitessConfig.getVttabletSchemaName());
+        this.jsonType = typeManager.getType(new TypeSignature(StandardTypes.JSON));
     }
 
     private static ConnectionFactory connectionFactory(BaseJdbcConfig config, VitessConfig vitessConfig)
@@ -199,9 +211,32 @@ public class VitessClient
     }
 
     @Override
+    protected Function<String, String> tryApplyLimit(OptionalLong limit)
+    {
+        if (!limit.isPresent()) {
+            return Function.identity();
+        }
+        return limitFunction()
+                .map(limitFunction -> (Function<String, String>) sql -> limitFunction.apply(sql, limit.getAsLong()))
+                .orElseGet(Function::identity);
+    }
+
+    @Override
+    public boolean supportsLimit()
+    {
+        return limitFunction().isPresent();
+    }
+
+    @Override
+    protected Optional<BiFunction<String, Long, String>> limitFunction()
+    {
+        return Optional.empty();
+    }
+
+    @Override
     public boolean isLimitGuaranteed()
     {
-        return true;
+        throw new PrestoException(JDBC_ERROR, "limitFunction() is implemented without isLimitGuaranteed()");
     }
 
     //    @Override
@@ -252,6 +287,18 @@ public class VitessClient
 //
 //        return super.toSqlType(type);
 //    }
+
+    @Override
+    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
+    {
+        String jdbcTypeName = typeHandle.getJdbcTypeName()
+                .orElseThrow(() -> new PrestoException(JDBC_ERROR, "Type name is missing: " + typeHandle));
+
+//        if (jdbcTypeName.equalsIgnoreCase("json")) {
+//            return Optional.of(jsonColumnMapping());
+//        }
+        return super.toPrestoType(session, connection, typeHandle);
+    }
 
     @Override
     public WriteMapping toWriteMapping(ConnectorSession session, Type type)
