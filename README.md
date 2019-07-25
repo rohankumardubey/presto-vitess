@@ -20,22 +20,22 @@ vitess.vttablet_schema_name=<schema name inside vttablet>
 
 ## Building
 
-_(optional)_ Deploy Presto by following [the guide on prestodb.io]( https://prestodb.io/docs/current/installation/deployment.html).
+_(optional)_ Deploy Presto by following [the guide on prestosql.io](https://prestosql.io/docs/current/installation/deployment.html).
 
-Clone [prestodb github repository](https://github.com/prestodb/presto/).
+Clone [presto github repository](https://github.com/prestosql/presto/).
 
-Checkout branch 0.215
+Checkout branch 315
 ```
-git checkout 0.215
+git checkout 315
 ```
 
-Change `pom.xml` found on prestodb repo's base directory:
+Change `pom.xml` found on presto repo's base directory:
 
 - add `<module>presto-vitess</module>` to `<modules>` scope, and 
 - add the following to `<dependencies>` scope:
 ```
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-vitess</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -48,7 +48,7 @@ Build the Vitess connector plugin using `mvnw` found on prestodb repo's base dir
 ./mvnw clean install -pl presto-vitess -am -DskipTests
 ```
 
-Copy the directory `presto-vitess/target/presto-vitess-0.215` into your Presto deployment's  `plugin` directory.
+Copy the directory `presto-vitess/target/presto-vitess-315` into your Presto deployment's  `plugin` directory.
 
 ---
 
